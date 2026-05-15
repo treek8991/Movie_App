@@ -1,0 +1,22 @@
+{
+  "name": "movie-app-frontend",
+  "version": "1.0.0",
+  "description": "React + Vite frontend for the Movie App curriculum",
+  "type": "module",
+  "scripts": {
+    "//dev": "Run the Vite dev server with hot reload on http://localhost:5173",
+    "dev": "vite",
+    "//build": "Produce a production bundle in /dist",
+    "build": "vite build",
+    "//preview": "Serve the built bundle locally to test it",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.0"
+  }
+}

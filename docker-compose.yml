@@ -1,0 +1,84 @@
+# =====================================================================
+# docker-compose.yml  (Phase 6: Docker Basics)
+# ---------------------------------------------------------------------
+# What this file does:
+#   Docker Compose reads this file and starts the containers we ask for.
+#   A "container" is a tiny, isolated computer that runs ONE program.
+#   We need exactly one container here: PostgreSQL (our database).
+#
+# Why we use Docker for the database:
+#   Installing PostgreSQL by hand is different on every operating system
+#   and easy to break. Docker gives us the SAME working PostgreSQL on
+#   macOS, Windows, or Linux with a single command:  `docker compose up -d`.
+#
+# How to use this file:
+#   1. Make sure Docker Desktop is running (whale icon in the menu bar).
+#   2. From this folder, run:    docker compose up -d
+#   3. Stop it later with:       docker compose down
+# =====================================================================
+
+# The Compose file schema version. Modern Docker no longer requires this
+# line, but including it makes intent clear and works on older Docker too.
+version: "3.9"
+
+# A "service" is one container. We only have one service: the database.
+services:
+
+  # ------------------------------------------------------------------
+  # Service name: `db`
+  # Other containers (and our backend, when we add it to compose later)
+  # would reach this database by the hostname `db`. For now our backend
+  # runs OUTSIDE Docker and reaches it on localhost:5432.
+  # ------------------------------------------------------------------
+  db:
+    # The Docker image (prebuilt blueprint) we want to run. `postgres:16`
+    # downloads the official PostgreSQL version 16 image the first time.
+    image: postgres:16
+
+    # A friendly name for the running container so we can find it later
+    # in `docker ps` and `docker logs movie_app_db`.
+    container_name: movie_app_db
+
+    # Always restart the container if it crashes, unless we stop it manually.
+    restart: unless-stopped
+
+    # Environment variables passed into the container. PostgreSQL reads
+    # these to create the initial user, password, and database.
+    #
+    # NOTE: In a real production app you would never hard code a password
+    # here. For local development this is fine and convenient.
+    environment:
+      POSTGRES_USER: movie_user
+      POSTGRES_PASSWORD: movie_password
+      POSTGRES_DB: movie_app
+
+    # Map a port from your computer (host) to a port inside the container.
+    # Format:  "HOST_PORT:CONTAINER_PORT"
+    # Our backend connects to localhost:5432 because of this line.
+    ports:
+      - "5432:5432"
+
+    # A volume gives the container a place to store data that survives
+    # restarts. Without this, every time you ran `docker compose down`
+    # all your movies would disappear.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+      # Also mount our SQL setup scripts into a special folder PostgreSQL
+      # automatically runs on first startup. Files in
+      # /docker-entrypoint-initdb.d are executed in alphabetical order,
+      # which is why we numbered them 01_, 02_.
+      - ./backend/sql:/docker-entrypoint-initdb.d
+
+    # A health check so Docker can tell us when PostgreSQL is actually
+    # ready to accept connections (not just starting up).
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U movie_user -d movie_app"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+# Top level "volumes" block. We named the volume `postgres_data` above;
+# we declare it down here so Docker knows to manage it.
+volumes:
+  postgres_data:
