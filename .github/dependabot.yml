@@ -1,0 +1,43 @@
+# Dependabot. Phase ECHO item E01, dated 2026-08-03.
+# Lifted from 01_Projects/15b_DD214Day_Web/.github/dependabot.yml.
+#
+# Weekly update pull requests for npm packages and for the Actions this
+# pipeline pins, with GitHub's security-update channel always on underneath.
+# Production and development dependencies are grouped so one review covers a
+# week of churn instead of five separate pull requests.
+#
+# The npm directory below is rewritten per repo by
+# _tools/STAMP_CI_2026-08-03.command: "/" for an app at the repo root,
+# "/site" for the site subfolder layout, and one npm block per app in a repo
+# that holds several. A repo with no package.json gets the github-actions
+# block only, because Dependabot errors on an npm directory it cannot find.
+#
+# Source of truth: _tools/echo_stamp_2026-08-03/dependabot.yml. Edit there.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/backend"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      production:
+        dependency-type: production
+      development:
+        dependency-type: development
+
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      production:
+        dependency-type: production
+      development:
+        dependency-type: development
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

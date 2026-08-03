@@ -1,0 +1,99 @@
+# Teal Apex gitleaks configuration. Phase ECHO item E01, dated 2026-08-03.
+#
+# Starts from the full gitleaks default ruleset and adds the credential shapes
+# this portfolio actually issues: Anthropic keys, Supabase service role JWTs,
+# Resend keys, Stripe live keys, and a bare SUPABASE_SERVICE_ROLE_KEY
+# assignment carrying a real looking value.
+#
+# The allowlist exists because this portfolio documents these shapes in prose.
+# The security posture notes, the troubleshooting registry, the .env examples,
+# the dated .bak copies of all of the above, and this file itself quote key
+# formats on purpose. Without the allowlist the scanner reports its own
+# documentation, and a scanner that cries wolf gets switched off. That has
+# already happened here once, at a cost of 1,228 phantom findings.
+#
+# Two deliberate choices worth knowing before you edit:
+#   1. The service role assignment rule does not accept a dot in the value, so
+#      SERVICE_ROLE_KEY = process.env.SERVICE_ROLE_KEY reads as a reference and
+#      not as a secret. A real JWT still matches, because its first segment is
+#      long enough on its own.
+#   2. The short junk tokens in the allowlist are boundary anchored. Left loose,
+#      a live key that happened to contain the letters abc123 would allowlist
+#      itself, which is the quiet way a scanner stops working.
+#
+# Source of truth: _tools/echo_stamp_2026-08-03/.gitleaks.toml at the portfolio
+# root. Re-stamp with _tools/STAMP_CI_2026-08-03.command. Edit there, never in
+# a stamped copy.
+
+title = "Teal Apex portfolio secret rules"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "teal-apex-anthropic-api-key"
+description = "Anthropic API key (sk-ant-)"
+regex = '''\bsk-ant-[A-Za-z0-9_\-]{24,}'''
+keywords = ["sk-ant-"]
+tags = ["anthropic", "api-key", "teal-apex"]
+
+[[rules]]
+id = "teal-apex-supabase-service-role-jwt"
+description = "Supabase service role JWT, full database bypass if leaked"
+regex = '''\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]*(c2VydmljZV9yb2xl|NlcnZpY2Vfcm9sZ|zZXJ2aWNlX3JvbG)[A-Za-z0-9_-]*\.[A-Za-z0-9_-]{20,}'''
+keywords = ["eyj"]
+tags = ["supabase", "service-role", "jwt", "teal-apex"]
+
+[[rules]]
+id = "teal-apex-supabase-service-role-assignment"
+description = "SUPABASE_SERVICE_ROLE_KEY assigned a real looking value"
+regex = '''(?i)\b(?:SUPABASE_)?SERVICE_ROLE_KEY\b\s*[:=]\s*["']?([A-Za-z0-9_\-]{20,})["']?'''
+secretGroup = 1
+keywords = ["service_role_key"]
+tags = ["supabase", "service-role", "teal-apex"]
+
+[[rules]]
+id = "teal-apex-resend-api-key"
+description = "Resend API key (re_)"
+regex = '''\bre_[A-Za-z0-9]{6,}_[A-Za-z0-9]{16,}\b'''
+keywords = ["re_"]
+tags = ["resend", "email", "api-key", "teal-apex"]
+
+[[rules]]
+id = "teal-apex-stripe-live-key"
+description = "Stripe live secret or restricted key"
+regex = '''\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b'''
+keywords = ["sk_live_", "rk_live_"]
+tags = ["stripe", "payments", "api-key", "teal-apex"]
+
+# ---------------------------------------------------------------------------
+# Allowlist. Documentation that quotes key shapes, dated backups, env examples,
+# skill and agent files that teach these formats, and this config itself.
+# ---------------------------------------------------------------------------
+[allowlist]
+description = "Teal Apex documentation, backups, and placeholder values"
+regexTarget = "line"
+paths = [
+  '''\.bak(\..*)?$''',
+  '''(?i)(^|/)\.gitleaks\.toml$''',
+  '''(?i)(^|/)\.gitleaksignore$''',
+  '''(?i)(^|/)\.env\.(example|sample|template)$''',
+  '''(?i)(^|/)SECURITY(_[A-Za-z0-9_\-]+)?\.md$''',
+  '''(?i)(^|/)[A-Za-z0-9_\-]*SECURITY[A-Za-z0-9_\-]*\.(md|txt)$''',
+  '''(?i)(^|/)[A-Za-z0-9_\-]*TROUBLESHOOTING[A-Za-z0-9_\-]*\.(md|txt)$''',
+  '''(?i)(^|/)[A-Za-z0-9_\-]*SECRET_SCAN[A-Za-z0-9_\-]*\.(md|txt)$''',
+  '''(?i)(^|/)_tools/echo_stamp_2026-08-03/''',
+  '''(?i)(^|/)\.claude/(skills|agents)/''',
+]
+regexes = [
+  # Documentation and template values. Left unanchored on purpose: these words
+  # are long enough that hitting one inside a random key is not a real risk.
+  '''(?i)(placeholder|example|sample|dummy|fake|redacted|scrubbed|rotated|revoked)''',
+  '''(?i)your[\-_ ]?(own[\-_ ]?)?(api[\-_ ]?)?(key|token|secret|url|anon|service)''',
+  '''(?i)(changeme|change[\-_ ]me|replace[\-_ ]?(me|this)|paste[\-_ ]?(your|here)|fill[\-_ ]?in)''',
+  # Short junk tokens, boundary anchored. Underscore counts as a boundary
+  # breaker here, not a boundary, so abc123 inside a live key stays reported.
+  '''(?i)(^|[^A-Za-z0-9_])(x{4,}|abc123|a{8,}|1234567890abcdef|test[\-_ ]?key|dev[\-_ ]?key|local[\-_ ]?only)([^A-Za-z0-9_]|$)''',
+  '''<[A-Za-z0-9_\- ]{2,40}>''',
+  '''gitleaks:allow''',
+]

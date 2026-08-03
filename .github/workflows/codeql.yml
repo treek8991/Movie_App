@@ -1,0 +1,46 @@
+# CodeQL static analysis. Phase ECHO item E01, dated 2026-08-03.
+# Lifted from 01_Projects/15b_DD214Day_Web/.github/workflows/codeql.yml.
+#
+# Semantic scanning for injection, auth, and data-flow defects in JS and TS.
+# Results land in the repo Security tab. Push and pull request on main or
+# master, plus weekly, so newly published query packs get a pass over old code.
+#
+# Stamped only into repos that contain JavaScript or TypeScript. CodeQL fails
+# with "no source code found" on a repo of plain HTML, and a red X for the
+# wrong reason is exactly how a gate gets ignored.
+#
+# Source of truth: _tools/echo_stamp_2026-08-03/codeql.yml. Edit there.
+
+name: CodeQL
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: "23 4 * * 1" # Mondays 04:23 UTC
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3

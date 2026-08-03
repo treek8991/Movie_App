@@ -1,0 +1,241 @@
+# Teal Apex shared CI gate. Phase ECHO item E01, dated 2026-08-03.
+#
+# One file, every repo shape. A step that cannot run PRINTS that it skipped and
+# why. Nothing is skipped silently, because a gate you cannot read is theatre,
+# and a gate that cries wolf gets ignored inside a week.
+#
+# What it does, in order:
+#   1. Resolves the app directory: a .tealapex-app-dir file if present, else the
+#      site folder when a repo carries both a root wrapper package.json and
+#      site/package.json (the layout the portfolio Vercel rule describes), else
+#      the repo root when it holds package.json, else the single directory
+#      within three levels that holds one. If several qualify it prints all of
+#      them and skips the rest of the job rather than guessing.
+#   2. Installs with npm ci when a lockfile exists, npm install when it does not,
+#      and says which it used.
+#   3. Audits the production dependency tree at high and above. Always.
+#   4. Typechecks only when tsconfig.json AND a local typescript are both present.
+#   5. Runs tests only when package.json has a real test script.
+#   6. Builds only when package.json has a build script.
+#   7. Runs scripts/check-imports.mjs only when that file exists.
+#
+# Add a test script and this gate starts enforcing it on the next push, with no
+# edit to this file. Same for a build script, a tsconfig, or the import sweep.
+#
+# setup-node caching is deliberately off. Cache keying needs a lockfile, and a
+# repo without one fails the setup step itself, which is a phantom failure.
+#
+# Source of truth: _tools/echo_stamp_2026-08-03/ci.yml at the portfolio root.
+# Re-stamp with _tools/STAMP_CI_2026-08-03.command. Edit there, never here.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve app directory
+        id: app
+        run: |
+          set -eu
+          DIR=""
+          if [ -f .tealapex-app-dir ]; then
+            DIR="$(tr -d ' \r\n' < .tealapex-app-dir)"
+            echo "App directory pinned by .tealapex-app-dir: $DIR"
+          elif [ -f package.json ] && [ -f site/package.json ]; then
+            DIR="site"
+            echo "App directory: site. The root package.json is the delegating"
+            echo "wrapper described in the portfolio Vercel rule, and site is the"
+            echo "folder Vercel builds. Pin something else with .tealapex-app-dir."
+          elif [ -f package.json ]; then
+            DIR="."
+            echo "App directory: repo root"
+          else
+            FOUND="$(find . -maxdepth 3 \
+              \( -name node_modules -o -name .git -o -name .next -o -name .expo \
+                 -o -name dist -o -name build -o -name out -o -name .vercel \
+                 -o -name .turbo -o -name _to_delete \) -prune -o \
+              -name package.json -print 2>/dev/null | sed 's|/package.json$||' | sort)"
+            COUNT="$(printf '%s\n' "$FOUND" | grep -c . || true)"
+            if [ "$COUNT" = "1" ]; then
+              DIR="$FOUND"
+              echo "App directory detected: $DIR"
+            elif [ "$COUNT" = "0" ]; then
+              echo "SKIPPED: no package.json anywhere in this repo."
+              echo "Nothing to install, audit, typecheck, test, or build."
+            else
+              echo "SKIPPED: more than one candidate app directory found:"
+              printf '  %s\n' $FOUND
+              echo "Write the one you want into a .tealapex-app-dir file at the repo root."
+            fi
+          fi
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        if: steps.app.outputs.dir != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies, dependency install scripts blocked
+        env:
+          APP_DIR: ${{ steps.app.outputs.dir }}
+        run: |
+          set -eu
+          if [ -z "${APP_DIR:-}" ]; then echo "SKIPPED install: no app directory."; exit 0; fi
+          cd "$APP_DIR"
+
+          # --ignore-scripts blocks preinstall, install and postinstall for every
+          # package in the tree. That is arbitrary code execution granted to hundreds
+          # of third parties on a runner that can see this repo's secrets, and it is
+          # how most npm supply chain attacks actually execute. Blocked by default,
+          # permitted only by name.
+          if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+            echo "Lockfile present, running npm ci --ignore-scripts in $APP_DIR"
+            npm ci --ignore-scripts
+          else
+            echo "No lockfile in $APP_DIR, running npm install --ignore-scripts instead."
+            echo "Commit the generated package-lock.json to make builds reproducible."
+            npm install --ignore-scripts
+          fi
+
+          # The project's own scripts in package.json are a separate matter. They are
+          # code we wrote and review, and ci.yml runs them explicitly by name later
+          # (typecheck, test, build). Nothing here suppresses those.
+
+      - name: Re-run install scripts for allow listed packages only
+        env:
+          APP_DIR: ${{ steps.app.outputs.dir }}
+        run: |
+          set -eu
+          if [ -z "${APP_DIR:-}" ]; then echo "SKIPPED rebuild: no app directory."; exit 0; fi
+          cd "$APP_DIR"
+
+          # The allow list lives in the repo, one package per line, # for comments.
+          # A repo with no such file runs with every dependency script blocked, which
+          # is the correct default. Data in the repo, not an edit to the shared
+          # workflow, so a repo with a different need never forks this file.
+          if [ ! -f .ci-allowed-scripts ]; then
+            echo "No .ci-allowed-scripts in $APP_DIR."
+            echo "Every dependency install script stayed blocked. This is the safe default."
+            echo "If the build below fails on a missing native binary, that is the signal"
+            echo "to add exactly one package to .ci-allowed-scripts, with a dated reason."
+            exit 0
+          fi
+
+          ALLOWED="$(sed 's/#.*//' .ci-allowed-scripts | tr -s ' \t' ' ' | tr -d '\r' | grep -v '^ *$' || true)"
+          if [ -z "$ALLOWED" ]; then
+            echo ".ci-allowed-scripts is present but lists no packages. Nothing to rebuild."
+            exit 0
+          fi
+
+          echo "Allow list from $APP_DIR/.ci-allowed-scripts:"
+          printf '  %s\n' $ALLOWED
+          echo ""
+
+          for PKG in $ALLOWED; do
+            if [ -d "node_modules/$PKG" ]; then
+              # --foreground-scripts so the output of every script we still permit is
+              # readable in the log. A permitted script that runs invisibly is not
+              # meaningfully different from one that was never blocked.
+              echo "Rebuilding (scripts permitted): $PKG"
+              npm rebuild --foreground-scripts "$PKG"
+            else
+              echo "SKIPPED $PKG: not installed in this environment."
+              echo "  Expected for platform specific optional packages such as fsevents,"
+              echo "  which is macOS only and is never installed on a Linux runner."
+            fi
+          done
+
+          echo ""
+          echo "Every dependency install script not named above was blocked."
+
+      - name: Dependency audit, production tree, high and critical block
+        env:
+          APP_DIR: ${{ steps.app.outputs.dir }}
+        run: |
+          set -eu
+          if [ -z "${APP_DIR:-}" ]; then echo "SKIPPED audit: no app directory."; exit 0; fi
+          cd "$APP_DIR"
+          npm audit --omit=dev --audit-level=high
+
+      - name: Committed-tree import sweep
+        env:
+          APP_DIR: ${{ steps.app.outputs.dir }}
+        run: |
+          set -eu
+          if [ -z "${APP_DIR:-}" ]; then echo "SKIPPED import sweep: no app directory."; exit 0; fi
+          cd "$APP_DIR"
+          if [ -f scripts/check-imports.mjs ]; then
+            node scripts/check-imports.mjs
+          else
+            echo "SKIPPED import sweep: no scripts/check-imports.mjs in $APP_DIR."
+          fi
+
+      - name: Typecheck
+        env:
+          APP_DIR: ${{ steps.app.outputs.dir }}
+        run: |
+          set -eu
+          if [ -z "${APP_DIR:-}" ]; then echo "SKIPPED typecheck: no app directory."; exit 0; fi
+          cd "$APP_DIR"
+          if [ ! -f tsconfig.json ]; then
+            echo "SKIPPED typecheck: no tsconfig.json in $APP_DIR."
+          elif [ ! -x node_modules/.bin/tsc ]; then
+            echo "SKIPPED typecheck: tsconfig.json is present but typescript is not installed."
+            echo "Add typescript to devDependencies and this step starts running."
+          else
+            ./node_modules/.bin/tsc --noEmit
+          fi
+
+      - name: Unit tests
+        env:
+          APP_DIR: ${{ steps.app.outputs.dir }}
+        run: |
+          set -eu
+          if [ -z "${APP_DIR:-}" ]; then echo "SKIPPED tests: no app directory."; exit 0; fi
+          cd "$APP_DIR"
+          TEST_SCRIPT="$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).scripts?.test || ''")"
+          case "$TEST_SCRIPT" in
+            "")
+              echo "SKIPPED tests: no test script in package.json."
+              echo "Add one and this gate starts enforcing it automatically." ;;
+            *"no test specified"*)
+              echo "SKIPPED tests: package.json still carries the npm placeholder test script."
+              echo "Replace it with a real one and this gate starts enforcing it automatically." ;;
+            *)
+              echo "Running: npm test"
+              npm test ;;
+          esac
+
+      - name: Production build
+        env:
+          APP_DIR: ${{ steps.app.outputs.dir }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co' }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key' }}
+        run: |
+          set -eu
+          if [ -z "${APP_DIR:-}" ]; then echo "SKIPPED build: no app directory."; exit 0; fi
+          cd "$APP_DIR"
+          BUILD_SCRIPT="$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).scripts?.build || ''")"
+          if [ -z "$BUILD_SCRIPT" ]; then
+            echo "SKIPPED build: no build script in package.json."
+          else
+            echo "Running: npm run build"
+            npm run build
+          fi
