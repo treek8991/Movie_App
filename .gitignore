@@ -41,3 +41,5 @@ yarn-error.log*
 
 # --- Docker volumes (we mount them locally) -----------------
 postgres_data
+
+.env.production
