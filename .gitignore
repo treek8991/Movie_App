@@ -43,3 +43,12 @@ yarn-error.log*
 postgres_data
 
 .env.production
+
+# Env backups, added 2026-08-10. A dated .env.local.bak is a live credential file.
+# One of these blocked a push on 2026-08-10, so the whole class is ignored here.
+.env*.bak*
+*.env.bak*
+.env.local.bak*
+.env.example.bak*
+.env.local.example.bak*
+
